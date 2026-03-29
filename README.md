@@ -1,13 +1,6 @@
-# K-Means Clustering
-
-K-Means Clustering — zero-dependency, single-file Python CLI.
-
+# kmeans
+Single-file Python CLI tool. Zero dependencies, Python 3.8+.
 ## Usage
-
 ```bash
-python3 kmeans.py --help
+python3 kmeans.py --test
 ```
-
-## License
-
-MIT

@@ -1,80 +1,64 @@
 #!/usr/bin/env python3
-"""K-means clustering from scratch with visualization."""
-import sys, math, random, csv
+"""kmeans - K-Means clustering with K-Means++ initialization."""
+import sys, math, random
 
-def distance(a, b): return math.sqrt(sum((x-y)**2 for x, y in zip(a, b)))
+def distance(a, b):
+    return math.sqrt(sum((x-y)**2 for x,y in zip(a, b)))
 
-def kmeans(data, k, max_iter=100, seed=42):
-    random.seed(seed); n = len(data); d = len(data[0])
-    centroids = random.sample(data, k)
-    labels = [0] * n
-    for iteration in range(max_iter):
-        # Assign
-        changed = False
-        for i, point in enumerate(data):
-            dists = [distance(point, c) for c in centroids]
-            new_label = dists.index(min(dists))
-            if new_label != labels[i]: changed = True; labels[i] = new_label
-        if not changed: break
-        # Update centroids
+def kmeans_pp_init(X, k, rng):
+    centers = [X[rng.randint(0, len(X)-1)]]
+    for _ in range(1, k):
+        dists = [min(distance(x, c)**2 for c in centers) for x in X]
+        total = sum(dists)
+        r = rng.random() * total
+        cumsum = 0
+        for i, d in enumerate(dists):
+            cumsum += d
+            if cumsum >= r:
+                centers.append(X[i])
+                break
+    return centers
+
+def kmeans(X, k, max_iter=100, seed=42):
+    rng = random.Random(seed)
+    centers = kmeans_pp_init(X, k, rng)
+    for _ in range(max_iter):
+        clusters = [[] for _ in range(k)]
+        labels = []
+        for x in X:
+            dists = [distance(x, c) for c in centers]
+            label = dists.index(min(dists))
+            clusters[label].append(x)
+            labels.append(label)
+        new_centers = []
         for j in range(k):
-            members = [data[i] for i in range(n) if labels[i] == j]
-            if members:
-                centroids[j] = [sum(p[dim] for p in members) / len(members) for dim in range(d)]
-    inertia = sum(distance(data[i], centroids[labels[i]])**2 for i in range(n))
-    return labels, centroids, inertia, iteration + 1
+            if clusters[j]:
+                ndim = len(X[0])
+                new_centers.append([sum(p[d] for p in clusters[j]) / len(clusters[j]) for d in range(ndim)])
+            else:
+                new_centers.append(centers[j])
+        if new_centers == centers:
+            break
+        centers = new_centers
+    return labels, centers
 
-def silhouette(data, labels, k):
-    n = len(data); scores = []
-    for i in range(n):
-        cluster = labels[i]
-        same = [j for j in range(n) if labels[j] == cluster and j != i]
-        a = sum(distance(data[i], data[j]) for j in same) / max(len(same), 1)
-        b = float("inf")
-        for c in range(k):
-            if c == cluster: continue
-            others = [j for j in range(n) if labels[j] == c]
-            if others:
-                avg = sum(distance(data[i], data[j]) for j in others) / len(others)
-                b = min(b, avg)
-        scores.append((b - a) / max(a, b) if max(a, b) > 0 else 0)
-    return sum(scores) / len(scores)
+def inertia(X, labels, centers):
+    return sum(distance(X[i], centers[labels[i]])**2 for i in range(len(X)))
 
-def ascii_plot(data, labels, k):
-    if len(data[0]) < 2: return
-    xs = [p[0] for p in data]; ys = [p[1] for p in data]
-    W, H = 60, 20
-    xmin, xmax = min(xs), max(xs); ymin, ymax = min(ys), max(ys)
-    xr = xmax - xmin or 1; yr = ymax - ymin or 1
-    grid = [[" "] * W for _ in range(H)]
-    chars = "0123456789ABCDEF"
-    for i, (x, y) in enumerate(zip(xs, ys)):
-        px = int((x - xmin) / xr * (W - 1)); py = H - 1 - int((y - ymin) / yr * (H - 1))
-        grid[py][px] = chars[labels[i] % len(chars)]
-    for row in grid: print("".join(row))
+def test():
+    X = [[0,0],[1,0],[0,1],[10,10],[11,10],[10,11]]
+    labels, centers = kmeans(X, 2)
+    cluster0 = set(i for i, l in enumerate(labels) if l == labels[0])
+    cluster1 = set(i for i, l in enumerate(labels) if l != labels[0])
+    assert cluster0 == {0,1,2} or cluster0 == {3,4,5}
+    assert len(centers) == 2
+    i = inertia(X, labels, centers)
+    assert i < 10
+    labels3, centers3 = kmeans(X, 3)
+    assert len(set(labels3)) <= 3
+    single, c = kmeans([[5,5]], 1)
+    assert single == [0]
+    print("All tests passed!")
 
-def main():
-    import argparse
-    p = argparse.ArgumentParser(description="K-means clustering")
-    p.add_argument("file", nargs="?"); p.add_argument("-k", type=int, default=3)
-    p.add_argument("--plot", action="store_true"); p.add_argument("--demo", action="store_true")
-    args = p.parse_args()
-    if args.demo or not args.file:
-        random.seed(42)
-        data = [[random.gauss(cx, 0.5), random.gauss(cy, 0.5)] for cx, cy in [(0,0),(3,3),(6,0)] for _ in range(30)]
-        labels, centroids, inertia, iters = kmeans(data, 3)
-        print(f"K-means (k=3): converged in {iters} iterations, inertia={inertia:.2f}")
-        sil = silhouette(data, labels, 3)
-        print(f"Silhouette score: {sil:.3f}")
-        for i, c in enumerate(centroids):
-            count = labels.count(i)
-            print(f"  Cluster {i}: center=({c[0]:.2f}, {c[1]:.2f}), size={count}")
-        ascii_plot(data, labels, 3); return
-    with open(args.file) as f:
-        reader = csv.reader(f); next(reader)
-        data = [[float(v) for v in row] for row in reader]
-    labels, centroids, inertia, iters = kmeans(data, args.k)
-    print(f"K={args.k}: {iters} iterations, inertia={inertia:.2f}")
-    if args.plot: ascii_plot(data, labels, args.k)
-
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    test() if "--test" in sys.argv else print("kmeans: K-Means clustering. Use --test")
